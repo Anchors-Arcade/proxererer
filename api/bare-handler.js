@@ -1,7 +1,18 @@
-// Bare server as ONE plain Vercel function. vercel.json rewrites /api/bare/* to this file.
-import { createBareServer } from "@tomphttp/bare-server-node";
+// DIAGNOSTIC version of api/bare-handler.js
+// - every response from this function has the header  x-bare-handler: 1
+//   (if the browser's Network tab shows a /api/bare/ response WITHOUT it, Vercel never reached this function)
+// - startup errors are returned as JSON instead of crashing
+// - every request is logged to Vercel > project > Logs (search "[bare]")
 
-const bare = createBareServer("/api/bare/");
+let bare = null;
+let initError = null;
+try {
+	const { createBareServer } = await import("@tomphttp/bare-server-node");
+	bare = createBareServer("/api/bare/");
+} catch (err) {
+	initError = err;
+	console.error("[bare] init failed:", err);
+}
 
 const CORS = {
 	"Access-Control-Allow-Origin": "*",
@@ -13,12 +24,12 @@ const CORS = {
 
 function sendJson(res, status, obj) {
 	for (const [k, v] of Object.entries(CORS)) res.setHeader(k, v);
+	res.setHeader("x-bare-handler", "1");
 	res.statusCode = status;
 	res.setHeader("Content-Type", "application/json");
 	res.end(JSON.stringify(obj, null, 2));
 }
 
-// Make req.url look like /api/bare/<rest>/?<query> however Vercel passed it.
 function normalizeUrl(req) {
 	const original = req.url || "";
 	const q = original.indexOf("?");
@@ -30,7 +41,6 @@ function normalizeUrl(req) {
 		req.url = "/api/bare/" + search;
 		return;
 	}
-	// Arrived as /api/bare-handler?path=v3/ (the rewrite's destination)
 	const params = new URLSearchParams(search);
 	const sub = params.getAll("path").join("/").replace(/^\/+|\/+$/g, "");
 	params.delete("path");
@@ -41,10 +51,21 @@ function normalizeUrl(req) {
 export default function handler(req, res) {
 	const seenUrl = req.url;
 	normalizeUrl(req);
+	console.log("[bare]", req.method, seenUrl, "->", req.url);
+	res.setHeader("x-bare-handler", "1");
+	res.on("finish", () => console.log("[bare] finished", req.method, res.statusCode));
 
-	// Open /api/bare/v3/?debug=1 in a tab: JSON means this function is live.
+	if (initError) {
+		sendJson(res, 500, {
+			error: "bare server failed to start",
+			message: String(initError && initError.message ? initError.message : initError),
+			stack: String(initError && initError.stack ? initError.stack : "").split("\n").slice(0, 6),
+		});
+		return;
+	}
+
 	if (/[?&]debug=1/.test(seenUrl || "")) {
-		sendJson(res, 200, { ok: true, method: req.method, seenUrl, routedAs: req.url, shouldRoute: bare.shouldRoute(req) });
+		sendJson(res, 200, { ok: true, method: req.method, seenUrl, routedAs: req.url, shouldRoute: bare.shouldRoute(req), node: process.version });
 		return;
 	}
 
@@ -63,6 +84,7 @@ export default function handler(req, res) {
 			return;
 		}
 	} catch (err) {
+		console.error("[bare] route error:", err);
 		sendJson(res, 500, { error: String(err && err.message ? err.message : err) });
 		return;
 	}
