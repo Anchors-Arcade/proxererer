@@ -4,12 +4,8 @@
   "buildCommand": "node scripts/vercel-build.mjs",
   "outputDirectory": "public",
   "functions": {
-    "api/bare-handler.js": { "maxDuration": 60 }
+    "api/bare/*.js": { "maxDuration": 60 }
   },
-  "rewrites": [
-    { "source": "/api/bare", "destination": "/api/bare-handler" },
-    { "source": "/api/bare/:path*", "destination": "/api/bare-handler?path=:path*" }
-  ],
   "headers": [
     {
       "source": "/((?!api/).*)",
