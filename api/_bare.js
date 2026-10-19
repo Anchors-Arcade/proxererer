@@ -4,8 +4,12 @@ import { createBareServer } from "@tomphttp/bare-server-node";
 const bare = createBareServer("/api/bare/");
 
 export default function handler(req, res) {
-	// Vercel keeps the original req.url (e.g. /api/bare/v3/?cache=abc) for file-based routes,
-	// so no URL rewriting is needed.
+	// Vercel may strip the trailing slash from the path; Bare's routes need it (/api/bare/v3/).
+	const q = (req.url || "").indexOf("?");
+	const pathname = q === -1 ? req.url : req.url.slice(0, q);
+	const search = q === -1 ? "" : req.url.slice(q);
+	if (!pathname.endsWith("/")) req.url = pathname + "/" + search;
+
 	if (bare.shouldRoute(req)) {
 		bare.routeRequest(req, res);
 		return;
